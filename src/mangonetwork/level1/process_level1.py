@@ -41,63 +41,62 @@ class ImageProcessor:
 
         logging.debug(filename)
 
+        # Read relevant fields from processed file
         image = h5py.File(filename)["ImageData"][:]
-        background = h5py.File(filename)["Background"][:]
-        elevation = h5py.File(filename)["Elevation"][:]
-        ha = h5py.File(filename)["ProcessingInfo/Altitude"][()]
         mask = h5py.File(filename)["Mask"][:]
 
-        #remove_background = self.config.getboolean("PROCESSING", "REMOVE_BACKGROUND")
-        #histequal = self.config.getboolean("PROCESSING", "EQUALIZATION", fallback=False)
-        #vanrhijn = self.config.getboolean("PROCESSING", "VANRHIJN")
-        #extinction = self.config.getboolean("PROCESSING", "EXTINCTION")
-        #uint8_out = self.config.getboolean("PROCESSING", "UINT8_OUT", fallback=False)
+        # Read relevant configuration options
+        remove_background = self.config.getboolean("PROCESSING", "REMOVE_BACKGROUND", fallback=True)
+        atmoscorr = self.config.getboolean("PROCESSING", "ATMOSPHERIC_CORRECTION", fallback=False)
+        histequal = self.config.getboolean("PROCESSING", "EQUALIZATION", fallback=False)
+        uint8_out = self.config.getboolean("PROCESSING", "UINT8_OUT", fallback=False)
 
+        # Remove background
         # This MUST be first, otherwise background won't be scaled correctly
-        #c = plt.imshow(image[0], vmin=0, vmax=20000)
-        #plt.colorbar(c)
-        #plt.show()
+        if remove_background:
+            background = h5py.File(filename)["Background"][:]
+            image = self.remove_background(image, background)
 
-        print(image.shape)
-        image = self.remove_background(image, background)
+        # Apply atmospheric corrections
+        if atmoscorr:
+            elevation = h5py.File(filename)["Elevation"][:]
+            ha = h5py.File(filename)["ProcessingInfo/Altitude"][()]
+            image = self.atmospheric_correction(image, elevation, ha)
 
-        #c = plt.imshow(image[0], vmin=0, vmax=20000)
-        #plt.colorbar(c)
-        #plt.show()
+        # Equalize image
+        if histequal:
+            image = self.histogram_equalize(image)
 
-        print(image.shape)
-        image = self.atmospheric_correction(image, elevation, ha)
+        # Convert image to uint8
+        if uint8_out:
+            image = self.convert_uint8(image)
 
-        #c = plt.imshow(image[0], vmin=0, vmax=20000)
-        #plt.colorbar(c)
-        #plt.show()
+        # Apply mask
+        try:
+            image[np.broadcast_to(mask, image.shape)] = np.nan
+        except ValueError:
+            # If image has been converted to uint8, can't use NaNs
+            image[np.broadcast_to(mask, image.shape)] = 0
 
-        print(image.shape)
-        image = self.histogram_equalize(image)
-
-        #c = plt.imshow(image[0], vmin=0, vmax=20000)
-        #plt.colorbar(c)
-        #plt.show()
-
-        print(image.shape)
-        image[np.broadcast_to(mask, image.shape)] = np.nan
 
         #c = plt.imshow(image[0], vmin=0, vmax=20000)
-        #plt.colorbar(c)
-        #plt.show()
+        c = plt.imshow(image[0])
+        plt.colorbar(c)
+        plt.show()
 
 
     def remove_background(self, image, background):
+        """Subtract background from image"""
 
         image = image - background[:,None,None]
+        # Correct any negative points after subtraction
         image[image < 0] = 0
     
         return image
 
 
     def atmospheric_correction(self, image, elevation, ha):
-        """Calculate atmospheric correction arrays"""
-        # DO WE WANT VANRHIJN AND EXTINCTION TO BE SEPERATE??
+        """Apply atmospheric corrections"""
 
         # Atmospheric corrections are taken from Kubota et al., 2001
         # Kubota, M., Fukunishi, H. & Okano, S. Characteristics of medium- and
@@ -152,6 +151,12 @@ class ImageProcessor:
     
         return image_array_1d.reshape(image.shape)
 
+
+    def convert_uint8(self, image):
+        """Convert image array to uint8"""
+
+        image = image * 255 / np.nanmax(image)
+        return image.astype("uint8")
 
 
 def process():
