@@ -1,13 +1,7 @@
 # Level 1 Data Processing
-# Includes:
-#   - Histogram Equalization
-#   - Background Removal
-#   - Atmospheric Correction
-
 import argparse
 import configparser
 import logging
-#import multiprocessing
 import pathlib
 import os
 import sys
@@ -15,9 +9,6 @@ import time
 
 import h5py
 import numpy as np
-from scipy.interpolate import griddata
-
-#from . import imageops
 
 import matplotlib.pyplot as plt
 
@@ -33,7 +24,6 @@ class ImageProcessor:
     def __init__(self, config):
         
         self.config = config
-
 
 
     def run(self, filename):
@@ -59,7 +49,7 @@ class ImageProcessor:
 
         # Apply atmospheric corrections
         if atmoscorr:
-            elevation = h5py.File(filename)["Elevation"][:]
+            elevation = h5py.File(filename)["Coordinates/Elevation"][:]
             ha = h5py.File(filename)["ProcessingInfo/Altitude"][()]
             image = self.atmospheric_correction(image, elevation, ha)
 
@@ -78,16 +68,18 @@ class ImageProcessor:
             # If image has been converted to uint8, can't use NaNs
             image[np.broadcast_to(mask, image.shape)] = 0
 
-
         #c = plt.imshow(image[0], vmin=0, vmax=20000)
-        c = plt.imshow(image[0])
-        plt.colorbar(c)
-        plt.show()
+        #c = plt.imshow(image[0])
+        #plt.colorbar(c)
+        #plt.show()
+        self.image = image
+        self.input_file = filename
 
 
     def remove_background(self, image, background):
         """Subtract background from image"""
 
+        # Subtract background from all time stamp
         image = image - background[:,None,None]
         # Correct any negative points after subtraction
         image[image < 0] = 0
@@ -104,7 +96,6 @@ class ImageProcessor:
         #   Earth Planet Sp 53, 741–751 (2001). https://doi.org/10.1186/BF03352402
 
         # calculate zenith angle
-
         za = np.pi / 2 - elevation * np.pi / 180.0
 
         REha = RE + ha
@@ -159,37 +150,40 @@ class ImageProcessor:
         return image.astype("uint8")
 
 
-def process():
-        elev_cutoff = self.config.getfloat("PROCESSING", "ELEVCUTOFF")
-        remove_background = self.config.getboolean("PROCESSING", "REMOVE_BACKGROUND")
-        contrast = self.config.getfloat("PROCESSING", "CONTRAST", fallback=100)
+    def write_to_hdf5(self, output_file):
+    
+        # Read relevant configuration options
+        remove_background = self.config.getboolean("PROCESSING", "REMOVE_BACKGROUND", fallback=True)
+        atmoscorr = self.config.getboolean("PROCESSING", "ATMOSPHERIC_CORRECTION", fallback=False)
         histequal = self.config.getboolean("PROCESSING", "EQUALIZATION", fallback=False)
-        vanrhijn = self.config.getboolean("PROCESSING", "VANRHIJN")
-        extinction = self.config.getboolean("PROCESSING", "EXTINCTION")
         uint8_out = self.config.getboolean("PROCESSING", "UINT8_OUT", fallback=False)
 
-        cooked_image = np.array(raw_image)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+        infile = h5py.File(self.input_file, "r")
+    
+        with h5py.File(output_file, "w") as f:
+            infile.copy("SiteInfo", f)
+            infile.copy("ProcessingInfo", f)
+            infile.copy("Coordinates", f)
+            infile.copy("UnixTime", f)
+    
+            images = f.create_dataset(
+                "ImageData",
+                data=self.image,
+                compression="gzip",
+                compression_opts=1,
+            )
+            images.attrs["Description"] = "pixel values for images"
+            images.attrs["station"] = infile["ImageData"].attrs["station"]
+            images.attrs["instrument"] = infile["ImageData"].attrs["instrument"]
+            images.attrs["remove_background"] = remove_background
+            images.attrs["atmospheric_correction"] = atmoscorr
+            images.attrs["equalization"] = histequal
+            images.attrs["uint8_out"] = uint8_out
 
-        # Does it matter which of these operations is performed first?
-        if remove_background:
-            cooked_image = imageops.background_removal(cooked_image)
 
-        if histequal:
-            cooked_image = imageops.equalize(cooked_image, contrast)
-
-        # Apply atmopsheric correction
-        if vanrhijn:
-            new_image *= self.vanrhijn_factor
-
-        if extinction:
-            new_image *= self.extinction_factor
-
-
-        # Renormalize each image and convert to int
-        if uint8_out:
-           new_image = (new_image * 255 / np.nanmax(new_image)).astype("uint8")
-
-
+#===================================================================================
 
 def parse_args():
     """Command line options"""
@@ -199,21 +193,12 @@ def parse_args():
     parser.add_argument(
         "-c", "--config", metavar="FILE", help="Alternate configuration file"
     )
-    #parser.add_argument(
-    #    "-f",
-    #    "--filelist",
-    #    metavar="FILE",
-    #    help="A file with a list of .hdf5 file names",
-    #)
     parser.add_argument(
         "-o",
         "--output",
         default="mango-l1.hdf5",
         help="Output filename (default is mango.hdf5)",
     )
-#    parser.add_argument(
-#        "-n", "--numproc", type=int, default=1, help="Number of parallel processes"
-#    )
     parser.add_argument(
         "-v",
         "--verbose",
@@ -221,25 +206,9 @@ def parse_args():
         default=0,
         help="Verbose output (repeat for more detail)",
     )
-
-    #parser.add_argument("inputfiles", nargs="*")
     parser.add_argument("inputfile", metavar="FILE", help="Input file")
 
     return parser.parse_args()
-
-
-#def find_inputfiles(args):
-#    """Find input filenames"""
-#
-#    if args.filelist:
-#        with open(args.filelist, encoding="utf-8") as f:
-#            filenames = [line.strip() for line in f]
-#            # filter blank lines
-#            filenames = [line for line in filenames if line]
-#    else:
-#        filenames = args.inputfiles
-#
-#    return [filename for filename in filenames if os.path.exists(filename)]
 
 
 def find_config(filename):
@@ -278,15 +247,6 @@ def main():
     else:
         logging.basicConfig(format=fmt, level=logging.INFO)
 
-    #inputs = find_inputfiles(args)
-
-#    if not inputs:
-#        logging.error("No input files found")
-#        sys.exit(1)
-
-    #logging.debug("Processing %d files", len(inputs))
-    #logging.debug("Number of processes: %d", args.numproc)
-
     if args.config:
         logging.debug("Alternate configuration file: %s", args.config)
         if not os.path.exists(args.config):
@@ -295,29 +255,20 @@ def main():
         with open(args.config, encoding="utf-8") as f:
             contents = f.read()
     else:
-        #contents = find_config(inputs[0])
         contents = find_config(args.inputfile)
 
     config = configparser.ConfigParser()
-    #config.read_string(contents)
     config.read(contents)
-
-#    # Make whether or not to multiprocess an option
-#    with multiprocessing.Pool(
-#        processes=args.numproc, initializer=worker_init, initargs=(config,)
-#    ) as pool:
-#        results = pool.map(worker, inputs, chunksize=1)
 
     processor = ImageProcessor(config)
     processor.run(args.inputfile)
-    #for filename in inputs:
-    #    processor.run(filename)
 
-    #output_file = pathlib.Path(args.output)
-    #write_to_hdf5(output_file, config, results)
+    output_file = pathlib.Path(args.output)
+    processor.write_to_hdf5(output_file)
 
     sys.exit(0)
 
 
 if __name__ == "__main__":
     main()
+
