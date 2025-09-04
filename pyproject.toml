@@ -24,11 +24,7 @@ classifiers = [
 
 dependencies = [
     "numpy",
-    "scipy",
-    "scikit-image",
     "h5py",
-    "pandas",
-    "matplotlib",
     "importlib_resources>1.3; python_version < '3.10'"
 ]
 
@@ -49,10 +45,6 @@ repository="https://github.com/mangonetwork/level1-image-processing"
 
 [project.scripts]
     mango-process-level1 = "mangonetwork.level1.process_level1:main"
-    #mango-calibrate = "mangonetwork.raw.calibrate:main"
-    #mango-keograms = "mangonetwork.raw.keograms:main"
-    #mango-quicklook-movies = "mangonetwork.raw.quicklook_movies:main"
-    #mango-starcal = "mangonetwork.raw.starcal:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
