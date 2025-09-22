@@ -38,6 +38,9 @@ test = [
 devel = [
     'build'
 ]
+cloud = [
+  "cloud-detection@git+https://github.com/mangonetwork/cloud-detection.git",
+]
 
 [project.urls]
 homepage="https://www.mangonetwork.org"

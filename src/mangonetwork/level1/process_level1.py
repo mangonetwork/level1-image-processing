@@ -2,15 +2,21 @@
 import argparse
 import configparser
 import logging
+import warnings
 import pathlib
 import os
 import sys
 import time
+import datetime as dt
 
 import h5py
 import numpy as np
 
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
+try:
+    from mangonetwork.clouddetect.makePrediction import makePrediction  # Importing this module is slow.  Only do it if necessary?
+except ImportError:
+    warnings.warn("The cloud-detection package is not installed!  Cloud flags cannot be calculated.", ImportWarning)
 
 #if sys.version_info < (3, 9):
 #    import importlib_resources as resources
@@ -39,6 +45,7 @@ class ImageProcessor:
         remove_background = self.config.getboolean("PROCESSING", "REMOVE_BACKGROUND", fallback=True)
         atmoscorr = self.config.getboolean("PROCESSING", "ATMOSPHERIC_CORRECTION", fallback=False)
         histequal = self.config.getboolean("PROCESSING", "EQUALIZATION", fallback=False)
+        cloud_flag = self.config.getboolean("PROCESSING", "CLOUD_FLAG", fallback=False)
         uint8_out = self.config.getboolean("PROCESSING", "UINT8_OUT", fallback=False)
 
         # Remove background
@@ -56,6 +63,14 @@ class ImageProcessor:
         # Equalize image
         if histequal:
             image = self.histogram_equalize(image)
+
+        # Create cloud flag array
+        if cloud_flag:
+            utime = h5py.File(filename)["UnixTime"][0,:]
+            station = h5py.File(filename)["ImageData"].attrs["station"]
+            instrument = h5py.File(filename)["ImageData"].attrs["instrument"]
+            raw_mango_dir = self.config.get("PROCESSING", "RAW_MANGO_DIR")
+            self.cloudy = self.check_clouds(station, instrument, utime, raw_mango_dir)
 
         # Convert image to uint8
         if uint8_out:
@@ -150,12 +165,28 @@ class ImageProcessor:
         return image.astype("uint8")
 
 
+    def check_clouds(self, station, instrument, utime, raw_mango_dir):
+        """Check if each image is cloudy or not"""
+
+        cloudy = list()
+        for ut in utime:
+            time = dt.datetime.utcfromtimestamp(ut)
+            raw_filename = f'{station}/{instrument}/raw/{time:%Y/%j/%H}/mango-{station}-{instrument}-{time:%Y%m%d-%H%M%S}.hdf5'
+            raw_filepath = os.path.join(raw_mango_dir, raw_filename)
+            res = makePrediction(filename=raw_filepath)
+            cloudy.append(res)
+
+        return cloudy
+        
+
+
     def write_to_hdf5(self, output_file):
     
         # Read relevant configuration options
         remove_background = self.config.getboolean("PROCESSING", "REMOVE_BACKGROUND", fallback=True)
         atmoscorr = self.config.getboolean("PROCESSING", "ATMOSPHERIC_CORRECTION", fallback=False)
         histequal = self.config.getboolean("PROCESSING", "EQUALIZATION", fallback=False)
+        cloud_flag = self.config.getboolean("PROCESSING", "CLOUD_FLAG", fallback=False)
         uint8_out = self.config.getboolean("PROCESSING", "UINT8_OUT", fallback=False)
 
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -181,6 +212,15 @@ class ImageProcessor:
             images.attrs["atmospheric_correction"] = atmoscorr
             images.attrs["equalization"] = histequal
             images.attrs["uint8_out"] = uint8_out
+
+            f.create_group("QualityFlags")
+            if cloud_flag:
+                cf = f.create_dataset(
+                    "QualityFlags/cloudy", data=self.cloudy, compression="gzip", compression_opts=1
+                )
+                cf.attrs["Description"] = "sky is clear or cloudy (clear=True; cloudy=False)"
+                cf.attrs["Size"] = "Nrecords"
+
 
 
 #===================================================================================
