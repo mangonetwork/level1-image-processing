@@ -66,7 +66,7 @@ class ImageProcessor:
 
         # Create cloud flag array
         if cloud_flag:
-            utime = h5py.File(filename)["UnixTime"][0,:]
+            utime = h5py.File(filename)["UnixTime"][:,0]
             station = h5py.File(filename)["ImageData"].attrs["station"]
             instrument = h5py.File(filename)["ImageData"].attrs["instrument"]
             raw_mango_dir = self.config.get("PROCESSING", "RAW_MANGO_DIR")
@@ -173,7 +173,7 @@ class ImageProcessor:
             time = dt.datetime.utcfromtimestamp(ut)
             raw_filename = f'{station}/{instrument}/raw/{time:%Y/%j/%H}/mango-{station}-{instrument}-{time:%Y%m%d-%H%M%S}.hdf5'
             raw_filepath = os.path.join(raw_mango_dir, raw_filename)
-            res = makePrediction(filename=raw_filepath)
+            res = makePrediction(instrument, filename=raw_filepath)
             cloudy.append(res)
 
         return cloudy
