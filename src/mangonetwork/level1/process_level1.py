@@ -17,7 +17,8 @@ from skyfield.almanac import moon_phase
 
 #import matplotlib.pyplot as plt
 try:
-    from mangonetwork.clouddetect.makePrediction import makePrediction  # Importing this module is slow.  Only do it if necessary?
+    #from mangonetwork.clouddetect.makePrediction import makePrediction  # Importing this module is slow.  Only do it if necessary?
+    from mangonetwork.clouddetect import check_cloudy
 except ImportError:
     warnings.warn("The cloud-detection package is not installed!  Cloud flags cannot be calculated.", ImportWarning)
 
@@ -69,11 +70,13 @@ class ImageProcessor:
 
         # Create cloud flag array
         if cloud_flag:
-            utime = h5py.File(filename)["UnixTime"][:,0]
-            station = h5py.File(filename)["ImageData"].attrs["station"]
-            instrument = h5py.File(filename)["ImageData"].attrs["instrument"]
             raw_mango_dir = self.config.get("PROCESSING", "RAW_MANGO_DIR")
-            self.cloudy = self.check_clouds(station, instrument, utime, raw_mango_dir)
+            self.cloudy = check_cloudy.processedfile(filename, raw_mango_dir=raw_mango_dir)
+            #utime = h5py.File(filename)["UnixTime"][:,0]
+            #station = h5py.File(filename)["ImageData"].attrs["station"]
+            #instrument = h5py.File(filename)["ImageData"].attrs["instrument"]
+            #raw_mango_dir = self.config.get("PROCESSING", "RAW_MANGO_DIR")
+            #self.cloudy = self.check_clouds(station, instrument, utime, raw_mango_dir)
 
         # Create moon array
         utime = h5py.File(filename)["UnixTime"][:,0]
