@@ -6,7 +6,9 @@ import warnings
 import pathlib
 import os
 import sys
-import time
+import platform
+import io
+#import time
 import datetime as dt
 
 import h5py
@@ -14,6 +16,13 @@ import numpy as np
 from skyfield.api import load, wgs84, utc
 from skyfield.almanac import moon_phase
 
+
+if sys.version_info < (3, 9):
+    import importlib_resources as resources
+    import importlib_metadata as metadata
+else:
+    from importlib import resources
+    from importlib import metadata
 
 #import matplotlib.pyplot as plt
 try:
@@ -231,7 +240,7 @@ class ImageProcessor:
     
         with h5py.File(output_file, "w") as f:
             infile.copy("SiteInfo", f)
-            infile.copy("ProcessingInfo", f)
+            #infile.copy("ProcessingInfo", f)
             infile.copy("Coordinates", f)
             infile.copy("DataQuality", f)
             infile.copy("UnixTime", f)
@@ -283,6 +292,43 @@ class ImageProcessor:
                 )
                 cf.attrs["Description"] = "sky is cloudy or clear (cloudy=True; clear=False)"
                 cf.attrs["Size"] = "Nrecords"
+
+            procgroup = f.create_group("ProcessingInfo")
+
+            infile.copy("ProcessingInfo/ElevationCutoff", procgroup)
+            infile.copy("ProcessingInfo/Altitude", procgroup)
+
+            #ec = f.create_dataset("ProcessingInfo/ElevationCutoff", data=elevcutoff)
+            #ec.attrs["Description"] = "elevation angle cutoff [deg]"
+    
+            #ha = f.create_dataset("ProcessingInfo/Altitude", data=bright_alt)
+            #ha.attrs["Description"] = "assumed altitude of brightness layer [km]"
+
+            timestamp = dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            ts = f.create_dataset("ProcessingInfo/TimeStamp", data=timestamp)
+            ts.attrs["Description"] = "timestamp when this file was processed"
+
+            ver = f.create_dataset("ProcessingInfo/Version", data=metadata.version("mangonetwork-level1"))
+            ver.attrs["Description"] = "version of processing code"
+
+            pv = f.create_dataset("ProcessingInfo/PythonVersion", data=platform.python_version())
+            pv.attrs["Description"] = "python version"
+
+            rf = f.create_dataset("ProcessingInfo/InputFilename", data=self.input_file)
+            rf.attrs["Description"] = "list of raw files used to generate this dataset"
+
+            with io.StringIO() as buffer:
+                self.config.write(buffer)
+                config_str = buffer.getvalue()
+            cfg = f.create_dataset("ProcessingInfo/ConfigFile", data=config_str)
+            cfg.attrs["Description"] = "full text of config file"
+
+            f.create_group("ProcessingInfo/PlatformInfo")
+            f.create_dataset("ProcessingInfo/PlatformInfo/MachineType", data=platform.machine())
+            f.create_dataset("ProcessingInfo/PlatformInfo/System", data=platform.system())
+            f.create_dataset("ProcessingInfo/PlatformInfo/Release", data=platform.release())
+            f.create_dataset("ProcessingInfo/PlatformInfo/Version", data=platform.version())
+            f.create_dataset("ProcessingInfo/PlatformInfo/HostName", data=platform.node())
 
 
 
