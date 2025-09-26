@@ -11,6 +11,9 @@ import datetime as dt
 
 import h5py
 import numpy as np
+from skyfield.api import load, wgs84, utc
+from skyfield.almanac import moon_phase
+
 
 #import matplotlib.pyplot as plt
 try:
@@ -71,6 +74,11 @@ class ImageProcessor:
             instrument = h5py.File(filename)["ImageData"].attrs["instrument"]
             raw_mango_dir = self.config.get("PROCESSING", "RAW_MANGO_DIR")
             self.cloudy = self.check_clouds(station, instrument, utime, raw_mango_dir)
+
+        # Create moon array
+        utime = h5py.File(filename)["UnixTime"][:,0]
+        coord = h5py.File(filename)["SiteInfo/Coordinates"][:]
+        self.moon_az, self.moon_el, self.moon_phase = self.get_moon(utime, coord[0], coord[1])
 
         # Convert image to uint8
         if uint8_out:
@@ -177,7 +185,32 @@ class ImageProcessor:
             cloudy.append(res)
 
         return cloudy
+
+
+    def get_moon(self, utime, lat, lon):
+
+        ts = load.timescale()
         
+        # Set up skyfild times array
+        times_dt = [dt.datetime.utcfromtimestamp(ut).replace(tzinfo=utc) for ut in utime]
+        times = ts.from_datetimes(times_dt)
+
+        # Load the JPL ephemeris DE421 (covers 1900-2050).
+        eph = load('de421.bsp')
+
+        # Calculate moon position
+        earth, moon = eph['Earth'], eph['Moon']
+        site = earth + wgs84.latlon(lat, lon)
+        astrometric = site.at(times).observe(moon)
+        el, az, d = astrometric.apparent().altaz()
+        
+        moon_az = az.degrees
+        moon_el = az.degrees
+
+        # Calculate moon phase
+        phase = moon_phase(eph, times).degrees      # Does it make sense for this to be an array or one time for the whole night?
+
+        return moon_az, moon_el, phase
 
 
     def write_to_hdf5(self, output_file):
@@ -197,6 +230,7 @@ class ImageProcessor:
             infile.copy("SiteInfo", f)
             infile.copy("ProcessingInfo", f)
             infile.copy("Coordinates", f)
+            infile.copy("DataQuality", f)
             infile.copy("UnixTime", f)
     
             images = f.create_dataset(
@@ -213,12 +247,38 @@ class ImageProcessor:
             images.attrs["equalization"] = histequal
             images.attrs["uint8_out"] = uint8_out
 
-            f.create_group("QualityFlags")
+            mp = f.create_dataset(
+                    "DataQuality/MoonPhase", 
+                    data=self.moon_phase, 
+                    compression="gzip",
+                    compression_opts=1
+            )
+            mp.attrs["Description"] = "phase of moon in degrees (0 = new moon; 180 = full moon)"
+
+            ma = f.create_dataset(
+                    "DataQuality/MoonAzimuth", 
+                    data=self.moon_az, 
+                    compression="gzip", 
+                    compression_opts=1
+            )
+            ma.attrs["Description"] = "azimuth position of moon (degrees)"
+
+            me = f.create_dataset(
+                    "DataQuality/MoonElevation", 
+                    data=self.moon_el, 
+                    compression="gzip", 
+                    compression_opts=1
+            )
+            me.attrs["Description"] = "elevation position of moon (degrees)"
+
             if cloud_flag:
                 cf = f.create_dataset(
-                    "QualityFlags/cloudy", data=self.cloudy, compression="gzip", compression_opts=1
+                    "DataQuality/CloudFlag", 
+                    data=self.cloudy, 
+                    compression="gzip", 
+                    compression_opts=1
                 )
-                cf.attrs["Description"] = "sky is clear or cloudy (clear=True; cloudy=False)"
+                cf.attrs["Description"] = "sky is cloudy or clear (cloudy=True; clear=False)"
                 cf.attrs["Size"] = "Nrecords"
 
 
