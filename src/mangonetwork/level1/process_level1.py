@@ -398,16 +398,29 @@ def main():
 
     if args.config:
         logging.debug("Alternate configuration file: %s", args.config)
-        if not os.path.exists(args.config):
+        if os.path.exists(args.config):
+            config_file = args.config
+        else:
             logging.error("Config file not found")
             sys.exit(1)
-        with open(args.config, encoding="utf-8") as f:
-            contents = f.read()
     else:
-        contents = find_config(args.inputfile)
+        config_file = find_config(inputs[0])
 
     config = configparser.ConfigParser()
-    config.read(contents)
+    config.read(config_file)
+
+#    if args.config:
+#        logging.debug("Alternate configuration file: %s", args.config)
+#        if not os.path.exists(args.config):
+#            logging.error("Config file not found")
+#            sys.exit(1)
+#        with open(args.config, encoding="utf-8") as f:
+#            contents = f.read()
+#    else:
+#        contents = find_config(args.inputfile)
+#
+#    config = configparser.ConfigParser()
+#    config.read(contents)
 
     processor = ImageProcessor(config)
     processor.run(args.inputfile)
